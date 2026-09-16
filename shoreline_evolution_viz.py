@@ -145,6 +145,8 @@ def create_shoreline_dashboard(
             else:
                 figure = go.Figure()
                 colors = px.colors.qualitative.Plotly
+                from scipy.stats import linregress
+                
                 for index, profile_id in enumerate(active_profiles):
                     profile_data = df_beach[
                         df_beach["profile_id"] == profile_id
@@ -160,6 +162,7 @@ def create_shoreline_dashboard(
                     marker_color = colors[index % len(colors)]
 
                     if not in_range.empty:
+                        # 1. Dibujar los puntos filtrados
                         figure.add_trace(
                             go.Scatter(
                                 x=in_range["clean_date"],
@@ -173,7 +176,60 @@ def create_shoreline_dashboard(
                                 name=f"Profile {profile_id}",
                             )
                         )
+                        
+                        # 2. Ajuste lineal y estadísticos si solo hay 1 perfil seleccionado
+                        if len(active_profiles) == 1 and len(in_range) > 2:
+                            # Convertir fechas a años decimales
+                            dias_desde_origen = (in_range["clean_date"] - pd.Timestamp("1970-01-01")).dt.days
+                            x_years = dias_desde_origen / 365.2425
+                            y_pos = in_range["shoreline_position_m"]
+                            
+                            # Regresión lineal con SciPy
+                            res = linregress(x_years, y_pos)
+                            y_fit = res.slope * x_years + res.intercept
+                            
+                            # Cálculos de bondad de ajuste
+                            r_squared = res.rvalue**2
+                            p_value = res.pvalue
+                            ci_95 = 1.96 * res.stderr  # Intervalo de confianza al 95%
+                            
+                            # Evaluar la fiabilidad estadística
+                            is_significant = p_value < 0.05
+                            sig_color = "green" if is_significant else "red"
+                            sig_text = "Significativo" if is_significant else "No significativo"
+                            
+                            # Trazar la línea de ajuste
+                            figure.add_trace(
+                                go.Scatter(
+                                    x=in_range["clean_date"],
+                                    y=y_fit,
+                                    mode="lines",
+                                    line=dict(color=sig_color, width=2, dash="dash"),
+                                    name=f"Trend OLS",
+                                )
+                            )
+                            
+                            # Preparar y añadir el recuadro con las métricas
+                            annotation_text = (
+                                f"<b>Tasa:</b> {res.slope:.2f} ± {ci_95:.2f} m/año<br>"
+                                f"<b>R²:</b> {r_squared:.2f}<br>"
+                                f"<b>p-valor:</b> {p_value:.3f} (<span style='color:{sig_color}'><b>{sig_text}</b></span>)"
+                            )
+                            
+                            figure.add_annotation(
+                                text=annotation_text,
+                                xref="paper", yref="paper",
+                                x=0.02, y=0.95,
+                                showarrow=False,
+                                bgcolor="rgba(255, 255, 255, 0.9)",
+                                bordercolor="black",
+                                borderwidth=1,
+                                font=dict(size=13, color="black"),
+                                align="left"
+                            )
+
                     if not out_range.empty:
+                        # 3. Dibujar los puntos fuera de rango (descartados por marea)
                         figure.add_trace(
                             go.Scatter(
                                 x=out_range["clean_date"],
