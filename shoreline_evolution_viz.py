@@ -4,8 +4,22 @@ def create_shoreline_dashboard(
     profiles,
     shorelines,
     profiles_shoreline_intersections,
+    display_widget: bool = False,
 ):
-    """Create and display the shoreline evolution widget dashboard.
+    """Create the shoreline evolution widget dashboard.
+
+    Parameters
+    ----------
+    profiles : geopandas.GeoDataFrame
+        Coastal profile geometries. Must contain ``profile_id``.
+    shorelines : geopandas.GeoDataFrame
+        Shoreline geometries and attributes, including ``Municipio``,
+        ``Playa`` and ``NivelTotal``.
+    profiles_shoreline_intersections : geopandas.GeoDataFrame
+        Point intersections with ``profile_id``, ``Municipio``, ``Playa``,
+        ``Fecha``, ``NivelTotal`` and ``shoreline_position_m`` columns.
+    display_widget : bool, default False
+        Whether to display the dashboard immediately after creation.
 
     Parameters
     ----------
@@ -255,7 +269,8 @@ def create_shoreline_dashboard(
             widgets.VBox([output_plot, output_map]),
         ]
     )
-    display(dashboard)
+    if display_widget:
+        display(dashboard)
     return dashboard
 
 
