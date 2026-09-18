@@ -17,7 +17,7 @@ class SmartTidalFilter:
         step_size=0.1,
         beach_col="Playa",
         tide_col="NivelTotal",
-        date_col="Fecha"
+        date_col="datetime"
     ):
         """
         Initializes the SmartTidalFilter with optimization hyperparameters and column names.
@@ -41,7 +41,7 @@ class SmartTidalFilter:
         tide_col : str
             Column name for the sea level / tide variable.
         date_col : str
-            Column name for the raw date variable (expected in YYYYMMDD format or similar).
+            Column name for the date variable (must already be a pandas datetime object).
         """
         self.min_coverage_ratio = min_coverage_ratio
         self.max_gap_years = max_gap_years
@@ -81,7 +81,7 @@ class SmartTidalFilter:
             return -9999.0
             
         # Unique dates to avoid counting multiple profiles on the same day as different events
-        unique_dates = pd.Series(df_window["clean_date"].dt.date.unique()).sort_values()
+        unique_dates = pd.Series(df_window[self.date_col].dt.date.unique()).sort_values()
         
         if len(unique_dates) < 3:
             return -9999.0
@@ -135,6 +135,7 @@ class SmartTidalFilter:
         ----------
         df : pandas.DataFrame or geopandas.GeoDataFrame
             Must contain the columns specified in beach_col, tide_col, and date_col.
+            The date_col must already be a pandas datetime object.
             
         Returns
         -------
@@ -144,14 +145,11 @@ class SmartTidalFilter:
         """
         df = df.copy()
         
-        # Ensure clean_date exists and is properly formatted
-        if "clean_date" not in df.columns:
-            df["clean_date"] = pd.to_datetime(df[self.date_col].astype(str).str[:8], format="%Y%m%d", errors="coerce")
-            
-        df = df.dropna(subset=["clean_date", self.tide_col, self.beach_col])
+        # Drop rows with NaNs in the essential columns
+        df = df.dropna(subset=[self.date_col, self.tide_col, self.beach_col])
         
-        global_min_year = df["clean_date"].dt.year.min()
-        global_max_year = df["clean_date"].dt.year.max()
+        global_min_year = df[self.date_col].dt.year.min()
+        global_max_year = df[self.date_col].dt.year.max()
         
         filtered_subsets = []
         
@@ -204,3 +202,53 @@ class SmartTidalFilter:
             return pd.DataFrame(columns=df.columns)
             
         return pd.concat(filtered_subsets, ignore_index=True)
+
+
+class ShorelineSmoother:
+    """
+    Applies a time-based rolling median filter to stabilize cross-shore 
+    shoreline positions, mitigating high-frequency noise and outliers.
+    """
+    
+    def __init__(
+        self, 
+        window='180D', 
+        min_periods=1, 
+        profile_col="profile_id", 
+        date_col="datetime", 
+        pos_col="shoreline_position_m"
+    ):
+        self.window = window
+        self.min_periods = min_periods
+        self.profile_col = profile_col
+        self.date_col = date_col
+        self.pos_col = pos_col
+
+    def fit_transform(self, df):
+        """
+        Applies the time-based rolling median grouped by profile safely,
+        bypassing Pandas index alignment issues for duplicate timestamps.
+        """
+        df_smoothed = df.copy()
+        
+        # 1. Orden estricto para garantizar que la matriz resultante encaje 1 a 1
+        df_smoothed = df_smoothed.sort_values(by=[self.profile_col, self.date_col]).reset_index(drop=True)
+        
+        # 2. Asignamos la fecha como índice temporalmente (necesario para el rolling basado en tiempo)
+        df_temp = df_smoothed.set_index(self.date_col)
+        
+        # 3. Agrupamos y aplicamos la ventana móvil (sort=False asegura que no se reordene nada)
+        rolling_median = (
+            df_temp.groupby(self.profile_col, sort=False)[self.pos_col]
+            .rolling(window=self.window, min_periods=self.min_periods)
+            .median()
+        )
+        
+        # 4. Extraemos el array matricial puro (.values) evitando que Pandas intente alinear índices
+        smoothed_col_name = f"{self.pos_col}_smoothed"
+        df_smoothed[smoothed_col_name] = rolling_median.values
+        
+        # 5. Limpiamos los NaNs iniciales (huecos donde no hay datos suficientes para la ventana)
+        df_smoothed = df_smoothed.dropna(subset=[smoothed_col_name]).reset_index(drop=True)
+        
+        return df_smoothed
