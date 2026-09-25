@@ -39,9 +39,11 @@ def create_shoreline_dashboard(
     """
     import folium
     import ipywidgets as widgets
+    import numpy as np
     import pandas as pd
     import plotly.express as px
     import plotly.graph_objects as go
+    from scipy.stats import gaussian_kde, linregress
     from IPython.display import clear_output, display
 
     intersections = profiles_shoreline_intersections.copy()
@@ -51,11 +53,6 @@ def create_shoreline_dashboard(
         errors="coerce",
     )
 
-    municipalities = sorted(intersections["Municipio"].dropna().unique())
-    dropdown_municipality = widgets.Dropdown(
-        options=municipalities,
-        description="Municipality:",
-    )
     dropdown_beach = widgets.Dropdown(description="Beach:")
     select_profiles = widgets.SelectMultiple(
         description="Profiles:",
@@ -82,15 +79,11 @@ def create_shoreline_dashboard(
         button_style="primary",
     )
     output_plot = widgets.Output()
+    output_histogram = widgets.Output()
     output_map = widgets.Output()
 
     def update_beach_options(*args):
-        selected_municipality = dropdown_municipality.value
-        beaches = sorted(
-            intersections[
-                intersections["Municipio"] == selected_municipality
-            ]["Playa"].dropna().unique()
-        )
+        beaches = sorted(intersections["Playa"].dropna().unique())
         dropdown_beach.options = beaches
         if beaches:
             dropdown_beach.value = beaches[0]
@@ -98,15 +91,13 @@ def create_shoreline_dashboard(
     def update_profile_options(*args):
         valid_profiles = sorted(
             intersections[
-                (intersections["Municipio"] == dropdown_municipality.value)
-                & (intersections["Playa"] == dropdown_beach.value)
+                intersections["Playa"] == dropdown_beach.value
             ]["profile_id"].dropna().unique()
         )
         select_profiles.options = valid_profiles
         select_profiles.value = tuple()
 
     def render_dashboard(_button):
-        municipality = dropdown_municipality.value
         beach = dropdown_beach.value
         level_min, level_max = slider_sea_level.value
         selected_profiles = select_profiles.value
@@ -114,29 +105,104 @@ def create_shoreline_dashboard(
         end_date = pd.to_datetime(date_end.value)
 
         valid_profile_ids = intersections[
-            (intersections["Municipio"] == municipality)
-            & (intersections["Playa"] == beach)
+            intersections["Playa"] == beach
         ]["profile_id"].unique()
         active_profiles = selected_profiles or valid_profile_ids
 
         df_beach = intersections[
-            (intersections["Municipio"] == municipality)
-            & (intersections["Playa"] == beach)
+            (intersections["Playa"] == beach)
             & intersections["clean_date"].notna()
             & (intersections["clean_date"] >= start_date)
             & (intersections["clean_date"] <= end_date)
             & intersections["profile_id"].isin(active_profiles)
         ].sort_values(by="clean_date")
 
+        all_levels = intersections[
+            intersections["Playa"] == beach
+        ]["NivelTotal"].dropna()
+        filtered_levels = df_beach[
+            (df_beach["NivelTotal"] >= level_min)
+            & (df_beach["NivelTotal"] <= level_max)
+        ]["NivelTotal"].dropna()
+
         profiles_filt = profiles[profiles["profile_id"].isin(valid_profile_ids)]
         shorelines_filt = shorelines[
-            (shorelines["Municipio"] == municipality)
-            & (shorelines["Playa"] == beach)
+            (shorelines["Playa"] == beach)
             & (shorelines["NivelTotal"] >= level_min)
             & (shorelines["NivelTotal"] <= level_max)
         ]
         profiles_wgs84 = profiles_filt.to_crs(epsg=4326)
         shorelines_wgs84 = shorelines_filt.to_crs(epsg=4326)
+
+        with output_histogram:
+            clear_output(wait=True)
+            if all_levels.empty:
+                print("No sea-level data available for the selected beach.")
+            else:
+                x_min = float(all_levels.min())
+                x_max = float(all_levels.max())
+                bin_size = (x_max - x_min) / 30 if x_min < x_max else 1.0
+                shared_bins = dict(
+                    start=x_min,
+                    end=x_max + bin_size,
+                    size=bin_size,
+                )
+                histogram = go.Figure()
+                histogram.add_trace(
+                    go.Histogram(
+                        x=all_levels,
+                        histnorm="probability density",
+                        xbins=shared_bins,
+                        marker_color="lightgray",
+                        marker_line_color="white",
+                        marker_line_width=0.5,
+                        name="All data",
+                        opacity=0.75,
+                    )
+                )
+                histogram.add_trace(
+                    go.Histogram(
+                        x=filtered_levels,
+                        histnorm="probability density",
+                        xbins=shared_bins,
+                        marker_color="#1976D2",
+                        marker_line_color="white",
+                        marker_line_width=0.5,
+                        name="Filtered data",
+                        opacity=0.65,
+                    )
+                )
+
+                kde_data = [(all_levels, "All data KDE", "#616161")]
+                if not filtered_levels.empty:
+                    kde_data.append(
+                        (filtered_levels, "Filtered data KDE", "#1976D2")
+                    )
+
+                if x_min < x_max:
+                    x_values = np.linspace(x_min, x_max, 200)
+                    for values, name, color in kde_data:
+                        if len(values) > 1 and values.nunique() > 1:
+                            density = gaussian_kde(values)(x_values)
+                            histogram.add_trace(
+                                go.Scatter(
+                                    x=x_values,
+                                    y=density,
+                                    mode="lines",
+                                    line=dict(color=color, width=2),
+                                    name=name,
+                                )
+                            )
+
+                histogram.update_layout(
+                    title=f"Sea Level Distribution - {beach}",
+                    xaxis_title="Sea Level (m)",
+                    yaxis_title="Density",
+                    barmode="overlay",
+                    template="plotly_white",
+                    hovermode="x unified",
+                )
+                histogram.show()
 
         with output_plot:
             clear_output(wait=True)
@@ -145,8 +211,6 @@ def create_shoreline_dashboard(
             else:
                 figure = go.Figure()
                 colors = px.colors.qualitative.Plotly
-                from scipy.stats import linregress
-                
                 for index, profile_id in enumerate(active_profiles):
                     profile_data = df_beach[
                         df_beach["profile_id"] == profile_id
@@ -183,6 +247,9 @@ def create_shoreline_dashboard(
                             dias_desde_origen = (in_range["clean_date"] - pd.Timestamp("1970-01-01")).dt.days
                             x_years = dias_desde_origen / 365.2425
                             y_pos = in_range["shoreline_position_m"]
+
+                            # Get the number of observations
+                            n_obs = len(in_range)
                             
                             # Regresión lineal con SciPy
                             res = linregress(x_years, y_pos)
@@ -211,6 +278,7 @@ def create_shoreline_dashboard(
                             
                             # Preparar y añadir el recuadro con las métricas
                             annotation_text = (
+                                f"<b>Observaciones:</b> {n_obs}<br>"
                                 f"<b>Tasa:</b> {res.slope:.2f} ± {ci_95:.2f} m/año<br>"
                                 f"<b>R²:</b> {r_squared:.2f}<br>"
                                 f"<b>p-valor:</b> {p_value:.3f} (<span style='color:{sig_color}'><b>{sig_text}</b></span>)"
@@ -308,7 +376,6 @@ def create_shoreline_dashboard(
                 ).add_to(map_view)
             display(map_view)
 
-    dropdown_municipality.observe(update_beach_options, "value")
     dropdown_beach.observe(update_profile_options, "value")
     button_update.on_click(render_dashboard)
 
@@ -316,13 +383,11 @@ def create_shoreline_dashboard(
     update_profile_options()
     dashboard = widgets.VBox(
         [
-            widgets.HBox(
-                [dropdown_municipality, dropdown_beach, select_profiles]
-            ),
+            widgets.HBox([dropdown_beach, select_profiles]),
             widgets.HBox([date_start, date_end]),
             slider_sea_level,
             button_update,
-            widgets.VBox([output_plot, output_map]),
+            widgets.VBox([output_histogram, output_plot, output_map]),
         ]
     )
     if display_widget:
