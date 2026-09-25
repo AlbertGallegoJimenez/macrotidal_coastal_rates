@@ -10,11 +10,11 @@ class SmartTidalFilter:
     
     def __init__(
         self, 
-        min_coverage_ratio=0.7, 
-        max_gap_years=4.0, 
-        lambda_1=2.0, 
+        min_years_span=5.0,
+        max_gap_years=5.0, 
+        lambda_1=1.0, 
         lambda_2=1.5,
-        window_sizes=[0.2, 0.3, 0.4, 0.5],
+        window_sizes=[0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5],
         step_size=0.1,
         beach_col="Playa",
         tide_col="NivelTotal",
@@ -25,8 +25,8 @@ class SmartTidalFilter:
         
         Parameters
         ----------
-        min_coverage_ratio : float
-            Minimum required ratio of data span vs total global span (e.g., 0.7 for 70%).
+        min_years_span : float
+            Minimum required span of the data in years.
         max_gap_years : float
             Maximum allowed consecutive years without data.
         lambda_1 : float
@@ -44,7 +44,7 @@ class SmartTidalFilter:
         date_col : str
             Column name for the date variable (must already be a pandas datetime object).
         """
-        self.min_coverage_ratio = min_coverage_ratio
+        self.min_years_span = min_years_span
         self.max_gap_years = max_gap_years
         self.lambda_1 = lambda_1
         self.lambda_2 = lambda_2
@@ -73,42 +73,32 @@ class SmartTidalFilter:
         r_value = np.sqrt(sin_mean**2 + cos_mean**2)
         return r_value
 
-    def _evaluate_window(self, df_window, z_min, z_max, global_min_year, global_max_year):
-        """
-        Calculates the suitability score (S) for a specific tidal window.
-        Returns -9999 if hard constraints (gaps, coverage) are not met.
-        """
+    def _evaluate_window(self, df_window, z_min, z_max, beach_max_year):
         if df_window.empty or len(df_window) < 3:
             return -9999.0
             
-        # Unique dates to avoid counting multiple profiles on the same day as different events
         unique_dates = pd.Series(df_window[self.date_col].dt.date.unique()).sort_values()
         
         if len(unique_dates) < 3:
             return -9999.0
 
-        # Check maximum temporal gap (Hard constraint: max 4 years)
+        # Check maximum temporal gap (Hard constraint)
         max_gap_days = pd.to_datetime(unique_dates).diff().dt.days.max()
         if max_gap_days / 365.25 > self.max_gap_years:
             return -9999.0
             
-        # Check temporal coverage ratio (Hard constraint)
+        # Check absolute temporal span (Hard constraint)
         window_min_year = unique_dates.min().year
         window_max_year = unique_dates.max().year
         window_span = window_max_year - window_min_year
-        global_span = global_max_year - global_min_year
         
-        # Avoid division by zero if global span is 0
-        global_span = global_span if global_span > 0 else 1
-        coverage_ratio = window_span / global_span
-        
-        if coverage_ratio < self.min_coverage_ratio:
+        if window_span < self.min_years_span:
             return -9999.0
 
         # N: Number of unique temporal events
         n_events = len(unique_dates)
         
-        # W: Tide Weight (Normalized between 0 and 1 relative to beach local max/min)
+        # W: Tide Weight
         z_mean = df_window[self.tide_col].mean()
         w_tide = (z_mean - z_min) / (z_max - z_min) if z_max > z_min else 1.0
         
@@ -119,8 +109,8 @@ class SmartTidalFilter:
         # Delta Z: Amplitude of the tidal window
         delta_z = df_window[self.tide_col].max() - df_window[self.tide_col].min()
         
-        # T_gap: Obsolescence (distance from the window's last data to the global present)
-        t_gap = global_max_year - window_max_year
+        # T_gap: Obsolescence (distance to the beach's most recent data, not global)
+        t_gap = beach_max_year - window_max_year
         
         # Fitness Equation (S)
         s_score = (np.log(n_events) * w_tide * c_seasonal) - (self.lambda_1 * delta_z) - (self.lambda_2 * t_gap)
@@ -157,6 +147,7 @@ class SmartTidalFilter:
         for beach_name, beach_df in df.groupby(self.beach_col):
             z_min = beach_df[self.tide_col].min()
             z_max = beach_df[self.tide_col].max()
+            beach_max_year = beach_df[self.date_col].dt.year.max()
             
             best_score = -9999.0
             best_window = None
@@ -173,7 +164,7 @@ class SmartTidalFilter:
                     ]
                     
                     score = self._evaluate_window(
-                        window_df, z_min, z_max, global_min_year, global_max_year
+                        window_df, z_min, z_max, beach_max_year
                     )
                     
                     if score > best_score:
