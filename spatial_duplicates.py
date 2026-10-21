@@ -88,6 +88,9 @@ if __name__ == "__main__":
     from shapely.geometry import LineString
 
     profiles = gpd.read_file(os.path.join("data", "profiles", "perfiles_playas_limpios",  "all_profiles_to_clean.shp"))
+    # Sort profiles by 'ID_perfil' to ensure consistent order for duplicate removal
+    profiles = profiles.sort_values(by="ID_Perfil").reset_index(drop=True)
+    profiles['ID_Perfil'] = profiles['ID_Perfil'].astype(int)  # Ensure 'ID_Perfil' is of integer type
 
     # Remove duplicates with a tolerance of 0.01 (1 cm in metric CRS)
     cleaned, duplicates = drop_spatial_duplicates(
@@ -102,6 +105,9 @@ if __name__ == "__main__":
         provinces = duplicates["provincia"].unique()
         print(f"Duplicates found in provinces: {', '.join(map(str, provinces))}")
 
+    # Drop automatic attributes generated after running Merge geoprocess in QGIS
+    cleaned = cleaned.drop(columns=['OBJECTID_1', 'layer', 'path'])
+    
     # Save the cleaned data to a new shapefile
     cleaned.to_file(os.path.join("data", "profiles", "cleaned_profiles_no_duplicates.shp"))
 
