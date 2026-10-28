@@ -206,8 +206,8 @@ class ShorelineEvolutionAnalyzer:
     
     def __init__(
         self, 
-        window='180D', 
-        min_periods=1, 
+        window='360D', 
+        min_periods=2, 
         profile_col="profile_id", 
         date_col="datetime", 
         pos_col="shoreline_position_m"
@@ -218,7 +218,7 @@ class ShorelineEvolutionAnalyzer:
         Parameters
         ----------
         window : str
-            Time offset for the rolling window (e.g., '180D' for 180 days).
+            Time offset for the rolling window (e.g., '360D' for 360 days).
         min_periods : int
             Minimum number of observations in window required to compute a median.
         profile_col : str
