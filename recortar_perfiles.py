@@ -23,7 +23,7 @@ from shapely.geometry import LineString
 # ---------------------------------------------------------------------------
 # PARÁMETRO CONFIGURABLE
 # ---------------------------------------------------------------------------
-EXTENSION_M = 100          # metros a extender en cada dirección desde dist_lref
+EXTENSION_M = 250          # metros a extender en cada dirección desde dist_lref
 
 # ---------------------------------------------------------------------------
 # RUTAS
