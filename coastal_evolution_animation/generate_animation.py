@@ -41,6 +41,8 @@ import matplotlib.patheffects as pe
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import contextily as cx
 from PIL import Image
+from matplotlib_scalebar.scalebar import ScaleBar
+from matplotlib_map_utils.core.north_arrow import NorthArrow, north_arrow
 
 # Hardcoded default event dates and advance values for specific profiles:
 # Format: {ID_Perfil: [fecha, valor_X_avance]}
@@ -318,16 +320,16 @@ def generate_animation(
                 ax=ax_inset, color="red", linewidth=3.0, linestyle="--", zorder=4
             )
             if 18844 in profile_label_positions:
-                lx, ly = profile_label_positions[18844]
                 ax_inset.text(
-                    lx,
-                    ly,
+                    0.5,
+                    0.3,
                     "ID: 18844",
+                    transform=ax_inset.transAxes,
                     color="red",
                     fontsize=10,
                     fontweight="bold",
-                    va="bottom",
-                    ha="right",
+                    va="center",
+                    ha="center",
                     path_effects=[pe.withStroke(linewidth=3, foreground="white")],
                     zorder=6,
                 )
@@ -371,6 +373,28 @@ def generate_animation(
             path_effects=[pe.withStroke(linewidth=4, foreground="black")],
             zorder=10,
         )
+
+        # North arrow in top-right corner (matplotlib-map-utils)
+        north_arrow(ax_map, location="upper right", scale=0.5, zorder=20)
+
+        # Scale bar in meters in top-right corner (matplotlib-scalebar)
+        scalebar = ScaleBar(
+            dx=1.0,
+            units="m",
+            fixed_value=500,
+            fixed_units="m",
+            location="upper right",
+            bbox_to_anchor=(0.98, 0.84),
+            bbox_transform=ax_map.transAxes,
+            box_alpha=0.65,
+            box_color="white",
+            color="black",
+            font_properties={"weight": "bold", "size": 9.5},
+            pad=0.25,
+            border_pad=0.35,
+            scale_loc="bottom",
+        )
+        ax_map.add_artist(scalebar)
 
         # Colorbar below map with ticks for each year
         divider = make_axes_locatable(ax_map)
