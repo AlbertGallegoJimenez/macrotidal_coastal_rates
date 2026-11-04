@@ -12,12 +12,12 @@ class SmartTidalFilter:
     def __init__(
         self, 
         min_years_span=5.0,
-        max_gap_years=5.0, 
-        lambda_1=1.0, 
+        max_gap_years=1.0, 
+        lambda_1=2.0, 
         lambda_2=1.5,
-        window_sizes=[0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5],
+        window_sizes=[0.2, 0.4, 0.6, 0.8, 1.0],
         step_size=0.1,
-        beach_col="Playa",
+        beach_col="ID_playa",
         tide_col="NivelTotal",
         date_col="datetime"
     ):
@@ -208,7 +208,7 @@ class ShorelineEvolutionAnalyzer:
         self, 
         window='360D', 
         min_periods=2, 
-        profile_col="profile_id", 
+        profile_col="ID_Perfil", 
         date_col="datetime", 
         pos_col="shoreline_position_m"
     ):
